@@ -1033,6 +1033,23 @@ carto = ["pydeck-carto"]
 jupyter = ["ipykernel (>=5.1.2)", "ipython (>=5.8.0)", "ipywidgets (>=7,<8)", "traitlets (>=4.3.2)"]
 
 [[package]]
+name = "pyee"
+version = "11.1.0"
+description = "A rough port of Node.js's EventEmitter to Python with a few tricks of its own"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "pyee-11.1.0-py3-none-any.whl", hash = "sha256:5d346a7d0f861a4b2e6c47960295bd895f816725b27d656181947346be98d7c1"},
+    {file = "pyee-11.1.0.tar.gz", hash = "sha256:b53af98f6990c810edd9b56b87791021a8f54fd13db4edd1142438d44ba2263f"},
+]
+
+[package.dependencies]
+typing-extensions = "*"
+
+[package.extras]
+dev = ["black", "build", "flake8", "flake8-black", "isort", "jupyter-console", "mkdocs", "mkdocs-include-markdown-plugin", "mkdocstrings[python]", "pytest", "pytest-asyncio", "pytest-trio", "sphinx", "toml", "tox", "trio", "trio", "trio-typing", "twine", "twisted", "validate-pyproject[all]"]
+
+[[package]]
 name = "pygments"
 version = "2.17.2"
 description = "Pygments is a syntax highlighting package written in Python."
@@ -1060,6 +1077,21 @@ files = [
 
 [package.dependencies]
 six = ">=1.5"
+
+[[package]]
+name = "python-ffmpeg"
+version = "2.0.10"
+description = "A python binding for FFmpeg which provides sync and async APIs"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "python-ffmpeg-2.0.10.tar.gz", hash = "sha256:5c7c47f52e9990aabb4f530ef4debb5373bbc8041dd1e3a8452cc1c69ea615f4"},
+    {file = "python_ffmpeg-2.0.10-py3-none-any.whl", hash = "sha256:775642bdc6063431e9ee8c208826b731cbb2c8c39fc2967f8bebdce90bade216"},
+]
+
+[package.dependencies]
+pyee = "*"
+typing-extensions = "*"
 
 [[package]]
 name = "pytz"
@@ -1676,4 +1708,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "cfeebb0619e67937d231d472e96fe1557ddbb35b8fba086b1af89a039b9be2e2"
+content-hash = "d4fed07142e0c414dbb0631fb579f3db2e0b991b7a62c6dedd877ec83f90a981"
