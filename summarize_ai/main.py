@@ -1,10 +1,18 @@
 import streamlit as st
+from streamlit.delta_generator import DeltaGenerator
+from io import BytesIO
 import subprocess
 import assemblyai as aai
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from exceptions import TranscodeError, TranscribeError
-from ffmpeg import FFmpeg, FFmpegError, FFmpegAlreadyExecuted
+from ffmpeg import FFmpegError, FFmpegAlreadyExecuted
+import asyncio
+import aiofiles
+from ffmpeg.asyncio import FFmpeg
+
+
+semaphore = asyncio.Semaphore(3)
 
 
 def check_ffmpeg_installation() -> bool:
@@ -22,7 +30,9 @@ def check_ffmpeg_installation() -> bool:
         return False
 
 
-def extract_audio_with_ffmpeg(input_video_path: Path, output_audio_path: Path) -> None:
+async def extract_audio_with_ffmpeg(
+    input_video_path: Path, output_audio_path: Path
+) -> None:
     ffmpeg = (
         FFmpeg()
         .option("y")
@@ -31,46 +41,107 @@ def extract_audio_with_ffmpeg(input_video_path: Path, output_audio_path: Path) -
     )
 
     try:
-        ffmpeg.execute()
+        await ffmpeg.execute()
     except (FFmpegAlreadyExecuted, FFmpegError) as e:
         raise TranscodeError(e)
 
-    st.info(":musical_note: Audio extraction completed successfully.")
 
-
-def transcribe_audio(input_audio_path: Path) -> list[aai.Paragraph]:
+async def transcribe_audio(input_audio_path: Path) -> aai.Transcript:
     transcriber = aai.Transcriber()
-    transcript = transcriber.transcribe(str(input_audio_path))
+    config = aai.TranscriptionConfig(
+        summarization=True,
+        summary_model=aai.SummarizationModel.informative,
+        summary_type=aai.SummarizationType.bullets_verbose,
+    )
+
+    future = transcriber.transcribe_async(str(input_audio_path), config)
+    transcript = await asyncio.wrap_future(future)
 
     if transcript.error:
         raise TranscribeError(transcript.error)
 
-    st.info(":black_nib: Transcription completed successfully")
+    return transcript
 
-    return transcript.get_paragraphs()
+
+async def process_file(uploaded_file: BytesIO, status_placeholder: DeltaGenerator):
+    async with semaphore:
+        async with aiofiles.tempfile.NamedTemporaryFile(
+            delete=False
+        ) as temp_video_file:
+            temp_video_file_path = Path(temp_video_file.name)
+            await temp_video_file.write(uploaded_file.getvalue())
+
+        temp_audio_file = NamedTemporaryFile(suffix=".mp3", delete=False)
+        temp_audio_file_path = Path(temp_audio_file.name)
+
+        try:
+            await extract_audio_with_ffmpeg(temp_video_file_path, temp_audio_file_path)
+        except TranscodeError as e:
+            status_placeholder.error(f":x: {e}")
+            temp_video_file.close()
+            temp_audio_file.close()
+            return
+
+        status_placeholder.info(
+            ":musical_note: Audio extraction completed successfully."
+        )
+
+        try:
+            transcript = await transcribe_audio(temp_audio_file_path)
+        except TranscribeError as e:
+            status_placeholder.error(f":x: {e}")
+            return
+        finally:
+            temp_video_file.close()
+            temp_audio_file.close()
+
+        status_placeholder.info(":black_nib: Transcription completed successfully")
+
+        status_placeholder.markdown("---")
+
+        status_placeholder.markdown("### :page_facing_up: **Summary**")
+        status_placeholder.markdown(transcript.summary)
+
+        status_placeholder.markdown("---")
+
+        status_placeholder.markdown("### :page_with_curl: **Transcription**")
+        for paragraph in transcript.get_paragraphs():
+            status_placeholder.markdown(paragraph.text)
+
+        status_placeholder.update(state="complete", expanded=False)
+
+
+async def main_async(uploaded_files: list[BytesIO]):
+    status_placeholders = [
+        st.status(f"File: {uploaded_file.name}") for uploaded_file in uploaded_files
+    ]
+    tasks = [
+        process_file(uploaded_file, status_placeholder)
+        for uploaded_file, status_placeholder in zip(
+            uploaded_files, status_placeholders
+        )
+    ]
+    await asyncio.gather(*tasks)
 
 
 def main():
     st.set_page_config(page_title="Summarize AI", page_icon=":robot_face:")
-    st.markdown("# :robot_face: Summarize AI")
+    st.title(":robot_face: Summarize AI")
 
-    aai.settings.api_key = st.secrets["assemblyai_api_key"]
+    dependency_installed = check_ffmpeg_installation()
+
+    if dependency_installed:
+        st.info(":gear: **ffmpeg** dependency is installed")
+    else:
+        st.warning(
+            ":warning: **ffmpeg** not installed, please install it and refresh the page"
+        )
 
     with st.form("my-form", clear_on_submit=True):
-        dependency_installed = check_ffmpeg_installation()
-
-        if dependency_installed:
-            st.info(":gear: *ffmpeg* dependency is installed")
-        else:
-            st.warning(
-                ":warning: *ffmpeg* not installed, please install it and refresh the page"
-            )
-
         uploaded_files = st.file_uploader(
-            label=":mag: Select one or multiple video files to transcribe.",
+            ":mag: Select one or multiple video files to transcribe.",
             type="mp4",
             accept_multiple_files=True,
-            key="file_uploader_key",
             disabled=not dependency_installed,
         )
 
@@ -79,56 +150,9 @@ def main():
         )
 
         if submitted and uploaded_files:
-            for uploaded_file in uploaded_files:
-                with st.status(f"File: {uploaded_file.name}") as status:
-                    temp_video_file = NamedTemporaryFile(delete=False)
-                    temp_video_file_path = Path(temp_video_file.name)
-
-                    try:
-                        with open(temp_video_file_path, "wb") as file:
-                            file.write(uploaded_file.getvalue())
-                    except IOError as e:
-                        st.error(e)
-                    except Exception as e:
-                        st.error(e)
-                        temp_video_file.close()
-                        continue
-
-                    temp_audio_file = NamedTemporaryFile(suffix=".mp3", delete=False)
-                    temp_audio_file_path = Path(temp_audio_file.name)
-
-                    try:
-                        extract_audio_with_ffmpeg(
-                            temp_video_file_path, temp_audio_file_path
-                        )
-                    except TranscodeError as exception:
-                        st.error(exception.message)
-                        st.error(exception.arguments)
-                        status.update(state="error", expanded=True)
-                        continue
-                    finally:
-                        temp_video_file.close()
-
-                    transcription = aai.Paragraph
-
-                    try:
-                        transcription = transcribe_audio(temp_audio_file_path)
-                    except TranscribeError as e:
-                        st.error(e)
-                        status.update(state="error", expanded=True)
-                        continue
-                    finally:
-                        temp_audio_file.close()
-
-                    st.markdown("#### Transcription:")
-
-                    with st.container():
-                        for paragraph in transcription:
-                            st.markdown(paragraph.text)
-
-                    status.update(state="complete", expanded=False)
-
-            st.info("All files were processed", icon=":partying_face:")
+            asyncio.run(main_async(uploaded_files))
+        else:
+            st.error("Please upload at least one file.")
 
 
 if __name__ == "__main__":
