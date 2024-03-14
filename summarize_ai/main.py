@@ -1,66 +1,16 @@
 import streamlit as st
 from streamlit.delta_generator import DeltaGenerator
 from io import BytesIO
-import subprocess
-import assemblyai as aai
-from pathlib import Path
 from tempfile import NamedTemporaryFile
-from exceptions import TranscodeError, TranscribeError
-from ffmpeg import FFmpegError, FFmpegAlreadyExecuted
+from pathlib import Path
 import asyncio
-import aiofiles
-from ffmpeg.asyncio import FFmpeg
+import aiofiles.tempfile
+from ffmpeg_handler import check_ffmpeg_installation, extract_audio_with_ffmpeg
+from transcriber import transcribe_audio
+from exceptions import TranscodeError, TranscribeError
 
 
 semaphore = asyncio.Semaphore(3)
-
-
-def check_ffmpeg_installation() -> bool:
-    try:
-        subprocess.run(
-            ["ffmpeg", "-version"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=True,
-        )
-
-        return True
-
-    except subprocess.CalledProcessError:
-        return False
-
-
-async def extract_audio_with_ffmpeg(
-    input_video_path: Path, output_audio_path: Path
-) -> None:
-    ffmpeg = (
-        FFmpeg()
-        .option("y")
-        .input(str(input_video_path))
-        .output(str(output_audio_path), {"q:a": 0, "map": "a", "f": "mp3"})
-    )
-
-    try:
-        await ffmpeg.execute()
-    except (FFmpegAlreadyExecuted, FFmpegError) as e:
-        raise TranscodeError(e)
-
-
-async def transcribe_audio(input_audio_path: Path) -> aai.Transcript:
-    transcriber = aai.Transcriber()
-    config = aai.TranscriptionConfig(
-        summarization=True,
-        summary_model=aai.SummarizationModel.informative,
-        summary_type=aai.SummarizationType.bullets_verbose,
-    )
-
-    future = transcriber.transcribe_async(str(input_audio_path), config)
-    transcript = await asyncio.wrap_future(future)
-
-    if transcript.error:
-        raise TranscribeError(transcript.error)
-
-    return transcript
 
 
 async def process_file(uploaded_file: BytesIO, status_placeholder: DeltaGenerator):
